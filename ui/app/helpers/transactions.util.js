@@ -16,6 +16,8 @@ import {
   UNKNOWN_FUNCTION_KEY,
 } from '../constants/transactions'
 
+import { multiplyCurrencies } from '../conversion-util'
+
 abiDecoder.addABI(abi)
 
 export function getTokenData (data = {}) {
@@ -102,4 +104,12 @@ export function getLatestSubmittedTxWithNonce (transactions = [], nonce = '0x0')
 export async function isSmartContractAddress (address) {
   const code = await global.eth.getCode(address)
   return code && code !== '0x'
+}
+
+export function increaseLastGasPrice (lastGasPrice) {
+  return ethUtil.addHexPrefix(multiplyCurrencies(lastGasPrice, 1.1, {
+    multiplicandBase: 16,
+    multiplierBase: 10,
+    toNumericBase: 'hex',
+  }))
 }

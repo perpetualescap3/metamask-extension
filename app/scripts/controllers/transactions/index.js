@@ -11,6 +11,14 @@ const txUtils = require('./lib/util')
 const cleanErrorStack = require('../../lib/cleanErrorStack')
 const log = require('loglevel')
 const recipientBlacklistChecker = require('./lib/recipient-blacklist-checker')
+const {
+  TRANSACTION_TYPE_CANCEL,
+  TRANSACTION_TYPE_RETRY,
+  TRANSACTION_TYPE_STANDARD,
+  TRANSACTION_STATUS_APPROVED,
+} = require('./enums')
+
+import { increaseLastGasPrice } from '../../../../ui/app/helpers/transactions.util'
 
 /**
   Transaction Controller is an aggregate of sub-controllers and trackers
@@ -160,7 +168,10 @@ class TransactionController extends EventEmitter {
     const normalizedTxParams = txUtils.normalizeTxParams(txParams)
     txUtils.validateTxParams(normalizedTxParams)
     // construct txMeta
-    let txMeta = this.txStateManager.generateTxMeta({ txParams: normalizedTxParams })
+    let txMeta = this.txStateManager.generateTxMeta({
+      txParams: normalizedTxParams,
+      type: TRANSACTION_TYPE_STANDARD,
+    })
     this.addTx(txMeta)
     this.emit('newUnapprovedTx', txMeta)
 
@@ -214,10 +225,36 @@ class TransactionController extends EventEmitter {
       txParams: originalTxMeta.txParams,
       lastGasPrice,
       loadingDefaults: false,
+      type: TRANSACTION_TYPE_RETRY,
     })
     this.addTx(txMeta)
     this.emit('newUnapprovedTx', txMeta)
     return txMeta
+  }
+
+  async createCancelTransaction (originalTxId, customGasPrice) {
+    const originalTxMeta = this.txStateManager.getTx(originalTxId)
+    const { txParams } = originalTxMeta
+    const { gasPrice: lastGasPrice, from, nonce } = txParams
+    const newGasPrice = customGasPrice || increaseLastGasPrice(lastGasPrice)
+    const newTxMeta = this.txStateManager.generateTxMeta({
+      txParams: {
+        from,
+        to: from,
+        nonce,
+        gas: '0x5208',
+        value: '0x0',
+        gasPrice: newGasPrice,
+      },
+      lastGasPrice,
+      loadingDefaults: false,
+      status: TRANSACTION_STATUS_APPROVED,
+      type: TRANSACTION_TYPE_CANCEL,
+    })
+
+    this.addTx(newTxMeta)
+    await this.approveTransaction(newTxMeta.id)
+    return newTxMeta
   }
 
   /**
@@ -393,7 +430,7 @@ class TransactionController extends EventEmitter {
     })
 
     this.txStateManager.getFilteredTxList({
-      status: 'approved',
+      status: TRANSACTION_STATUS_APPROVED,
     }).forEach((txMeta) => {
       const txSignError = new Error('Transaction found as "approved" during boot - possibly stuck during signing')
       this.txStateManager.setTxStatusFailed(txMeta.id, txSignError)
